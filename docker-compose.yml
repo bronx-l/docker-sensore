@@ -1,0 +1,32 @@
+services:
+  redis:
+    image: redis
+    container_name: redis-sensore
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  sensore:
+    build: .
+    container_name: sensore-compose
+    depends_on:
+      - redis
+    volumes:
+      - C:\log-sensore:/app/log
+    restart: unless-stopped
+
+  api:
+    build: .
+    container_name: api-sensore
+    command: python api.py
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  redis_data:
