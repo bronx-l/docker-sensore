@@ -1,277 +1,171 @@
-# Docker Sensore – Python + Redis + API Flask con Docker Compose
+# Docker Sensore Dashboard
 
-Mini-progetto didattico per imparare Docker e Docker Compose partendo da un caso realistico:
+Mini progetto full-stack containerizzato con Docker Compose che simula un sensore ambientale, salva i dati su Redis, li espone tramite API Flask e li visualizza in una dashboard web con Nginx e Chart.js.
 
-- un **sensore** simulato in Python che genera letture di temperatura e umidità,
-- un **database Redis** che memorizza le letture,
-- una **API Flask** che espone le letture via HTTP su `localhost:8000`.
+## Obiettivo
 
-Il tutto orchestrato con Docker Compose in un unico comando.
+Questo progetto mostra una piccola architettura multi-servizio con:
 
----
+- generazione dati sensore simulati;
+- persistenza temporanea su Redis;
+- API REST in Flask;
+- frontend statico servito da Nginx;
+- dashboard con KPI, storico letture e grafico live;
+- configurazione tramite file `.env`;
+- healthcheck Redis e dipendenze robuste in Docker Compose.
+
+## Stack
+
+- Docker Compose
+- Python
+- Flask
+- Redis
+- Nginx
+- HTML / CSS / JavaScript
+- Chart.js
 
 ## Architettura
 
-Stack a 3 servizi:
-
-- `sensore`  
-  - Container Python che genera una lettura ogni 2 secondi.  
-  - Scrive le letture:
-    - su file di log montato sull’host,
-    - in Redis (ultima lettura + storico).
-
-- `redis`  
-  - Istanza Redis basata sull’immagine ufficiale `redis`.  
-  - Dati persistenti su volume Docker nominato (`redis_data`).  
-  - Abilitata persistenza `appendonly`.
-
-- `api`  
-  - API REST minimale in Flask.  
-  - Legge da Redis e fornisce gli endpoint:
-    - `GET /` – health-check
-    - `GET /last-reading` – ultima lettura
-    - `GET /history` – ultime 10 letture
-
-I container comunicano tra loro tramite la rete interna di Docker Compose, usando il nome del servizio (`redis`) come hostname.
-
----
+```mermaid
+flowchart LR
+    A[Sensor Service<br/>Python] --> B[Redis]
+    B --> C[API Service<br/>Flask]
+    C --> D[Frontend<br/>Nginx + Dashboard]
+    D --> E[Browser<br/>localhost]
+```
 
 ## Struttura del progetto
 
 ```text
 docker-sensore/
-├── Dockerfile
+├── api/
+│   ├── api.py
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/
+│   ├── index.html
+│   ├── nginx.conf
+│   └── Dockerfile
+├── sensor/
+│   ├── sensor.py
+│   ├── Dockerfile
+│   └── requirements.txt
+├── .env.example
 ├── docker-compose.yml
-├── requirements.txt
-├── sensor.py        # generatore letture (producer)
-└── api.py           # API Flask (consumer)
+└── README.md
 ```
 
----
+## Variabili d'ambiente
 
-## Prerequisiti
+Crea un file `.env` nella root del progetto.
 
-- Docker Desktop (con backend WSL2 su Windows)
-- Docker Compose v2 (`docker compose` integrato in Docker Desktop)
-- (Windows) Cartella host per i log: `C:\log-sensore`
+Esempio:
 
----
-
-## Configurazione dei log sull’host
-
-Per salvare i log del sensore su Windows (e non perderli quando i container vengono fermati):
-
-```powershell
-mkdir C:\log-sensore
+```env
+REDIS_HOST=redis
+REDIS_PORT=6379
+SENSOR_INTERVAL=2
+TEMPERATURE_MIN=15.0
+TEMPERATURE_MAX=30.0
+HUMIDITY_MIN=30.0
+HUMIDITY_MAX=80.0
 ```
 
-Questa cartella viene montata nel container sotto `/app/log` tramite bind mount definito in `docker-compose.yml`.
+## Avvio del progetto
 
----
-
-## Avvio dello stack
-
-Dalla cartella del progetto:
+Build e avvio:
 
 ```bash
 docker compose up -d --build
 ```
 
-Questo comando:
-
-1. builda l’immagine Python a partire dal `Dockerfile`,
-2. avvia i servizi `redis`, `sensore`, `api` in background,
-3. crea (se necessario) il volume Docker per Redis.
-
-Verifica che i servizi siano attivi:
+Verifica stato container:
 
 ```bash
 docker compose ps
 ```
 
-Dovresti vedere:
-
-- `redis-sensore` (Up)
-- `sensore-compose` (Up)
-- `api-sensore` (Up, port 8000)
-
----
-
-## Endpoint API
-
-Una volta avviato lo stack:
-
-### Health-check
-
-```bash
-curl http://localhost:8000/
-```
-
-Risposta attesa (test semplice):
-
-```text
-API sensore attiva
-```
-
-### Ultima lettura
-
-```bash
-curl http://localhost:8000/last-reading
-```
-
-Esempio di risposta:
-
-```json
-{
-  "ultima_lettura": "[2026-07-18T13:23:17] Temp: 16.11 °C  Umidità: 37.91%"
-}
-```
-
-### Storico letture (ultime 10)
-
-```bash
-curl http://localhost:8000/history
-```
-
-Esempio di risposta:
-
-```json
-{
-  "storico_letture": [
-    "[2026-07-18T13:23:17] Temp: 16.11 °C  Umidità: 37.91%",
-    "[2026-07-18T13:23:15] Temp: 17.02 °C  Umidità: 41.23%",
-    ...
-  ]
-}
-```
-
----
-
-## Verifica log su filesystem host
-
-Dopo qualche secondo che il sensore gira:
-
-```powershell
-cd C:\log-sensore
-type sensore.log
-```
-
-Vedrai una riga ogni ~2 secondi, simile a:
-
-```text
-[2026-07-18T13:23:17] Temp: 16.11 °C  Umidità: 37.91%
-[2026-07-18T13:23:19] Temp: 18.02 °C  Umidità: 42.10%
-...
-```
-
----
-
-## Verifica diretta dentro Redis
-
-Puoi entrare nella CLI Redis sul container:
-
-```bash
-docker exec -it redis-sensore redis-cli
-```
-
-Comandi utili:
-
-```text
-GET ultima_lettura
-LRANGE storico_letture 0 5
-exit
-```
-
-- `GET ultima_lettura` – mostra l’ultima stringa scritta dal sensore.
-- `LRANGE storico_letture 0 5` – mostra le ultime 6 letture in ordine inverso (lista Redis).
-
----
-
-## Comandi Docker/Compose utili
-
-### Log in streaming
-
-Log di tutti i servizi:
-
-```bash
-docker compose logs -f
-```
-
-Solo API:
-
-```bash
-docker compose logs -f api
-```
-
-Solo sensore:
-
-```bash
-docker compose logs -f sensore
-```
-
-### Stop / cleanup
-
-Ferma i container senza rimuoverli:
-
-```bash
-docker compose stop
-```
-
-Ferma e rimuove container e rete Compose:
+Stop progetto:
 
 ```bash
 docker compose down
 ```
 
-Ferma, rimuove e cancella anche i volumi definiti nel file:
+Stop progetto e rimozione volumi:
 
 ```bash
 docker compose down -v
 ```
 
-> Attenzione: il volume `redis_data` verrà eliminato, e con lui i dati Redis.
+## Accesso applicazione
 
----
+Frontend dashboard:
 
-## Dettagli implementativi
+- [http://localhost](http://localhost)
 
-### `sensor.py`
+API:
 
-- genera una lettura ogni 2 secondi (temperatura e umidità random),
-- stampa la lettura a console,
-- appende la riga al file `log/sensore.log` (bind mount sull’host),
-- scrive in Redis:
-  - chiave stringa `ultima_lettura`,
-  - lista `storico_letture` tramite `LPUSH`.
+- [http://localhost/api](http://localhost/api)
+- [http://localhost/api/health](http://localhost/api/health)
+- [http://localhost/api/last-reading](http://localhost/api/last-reading)
+- [http://localhost/api/history](http://localhost/api/history)
+- [http://localhost/api/history?limit=5](http://localhost/api/history?limit=5)
 
-### `api.py`
+## Funzionalità implementate
 
-API Flask minimale:
+- sensore simulato con valori casuali di temperatura e umidità;
+- salvataggio ultima lettura e storico su Redis;
+- endpoint API per lettura singola, storico e health;
+- dashboard con:
+  - stato API,
+  - temperatura corrente,
+  - umidità corrente,
+  - storico ultime letture,
+  - grafico live;
+- soglie visive per KPI;
+- configurazione tramite `.env`;
+- healthcheck Redis con `depends_on: service_healthy`.
 
-- `/` – health-check testuale
-- `/last-reading` – legge `ultima_lettura` da Redis e la restituisce in JSON
-- `/history` – legge le ultime 10 voci da `storico_letture` e le restituisce in JSON
+## Esempio risposta API
 
-Gestisce alcuni retry sulla connessione Redis in fase di avvio.
+### `/api/last-reading`
 
-### `docker-compose.yml`
+```json
+{
+  "timestamp": "2026-07-18T16:25:10",
+  "temperatura": 21.84,
+  "umidita": 48.11
+}
+```
 
-- crea automaticamente una rete interna dove i container si vedono per nome di servizio (`redis`);
-- monta:
-  - un volume nominato `redis_data` per i dati Redis,
-  - un bind mount `C:\log-sensore:/app/log` per i log del sensore su Windows;
-- espone:
-  - `6379:6379` per eventuali test da host verso Redis,
-  - `8000:8000` per l’API HTTP.
+### `/api/history?limit=3`
 
----
+```json
+{
+  "count": 3,
+  "limit": 3,
+  "storico_letture": [
+    {
+      "timestamp": "2026-07-18T16:24:40",
+      "temperatura": 20.31,
+      "umidita": 50.12
+    }
+  ]
+}
+```
 
-## Possibili estensioni
+## Note tecniche
 
-Idee per sviluppi futuri:
+- Redis è usato come storage in-memory per semplicità.
+- Il frontend comunica con Flask tramite reverse proxy Nginx su `/api/`.
+- Il sensore scrive anche un log locale montato via volume bind.
+- Il progetto è pensato come base portfolio e come punto di partenza per future estensioni.
 
-- Aggiungere una piccola **UI web** (HTML/JS) che chiama `/last-reading` e visualizza i dati in tempo reale.
-- Aggiungere un database relazionale (es. PostgreSQL) e salvare anche i dati storici su DB.
-- Introdurre variabili d’ambiente per configurare intervallo di lettura, soglie di allarme, ecc.
-- Creare test automatici per API e sensore.
+## Estensioni future
 
+- persistenza storica su database relazionale;
+- autenticazione API;
+- esportazione dati CSV;
+- filtri temporali nello storico;
+- deploy cloud o VPS;
+- monitoraggio e logging più avanzati.

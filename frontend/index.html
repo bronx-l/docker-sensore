@@ -1,9 +1,11 @@
 <!doctype html>
+
 <html lang="it">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Docker Sensore Dashboard</title>
+
   <style>
     :root {
       --bg: #0f172a;
@@ -13,9 +15,14 @@
       --accent: #22c55e;
       --border: #1f2937;
       --danger: #ef4444;
+      --warning: #f59e0b;
+      --info: #38bdf8;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       font-family: Arial, sans-serif;
@@ -50,7 +57,15 @@
       border: 1px solid var(--border);
       border-radius: 16px;
       padding: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .card.warn {
+      border-color: var(--warning);
+    }
+
+    .card.alert {
+      border-color: var(--danger);
     }
 
     .label {
@@ -63,6 +78,24 @@
       font-size: 1.1rem;
       font-weight: bold;
       line-height: 1.5;
+    }
+
+    .kpi {
+      font-size: 2rem;
+      font-weight: bold;
+      margin: 8px 0;
+    }
+
+    .kpi-ok {
+      color: var(--accent);
+    }
+
+    .kpi-warn {
+      color: var(--warning);
+    }
+
+    .kpi-alert {
+      color: var(--danger);
     }
 
     .status {
@@ -112,92 +145,439 @@
       border-radius: 6px;
     }
   </style>
+
 </head>
+
 <body>
   <div class="container">
-    <h1>Docker Sensore Dashboard</h1>
-    <p class="lead">
-      Frontend separato con Nginx, API Flask e Redis in Docker Compose.
-    </p>
 
-    <div class="grid">
-      <section class="card">
-        <div class="label">Ultima lettura</div>
-        <div id="last-reading" class="value">Caricamento...</div>
-        <div class="status">
-          <span id="status-dot" class="dot"></span>
-          <span id="status-text">API raggiungibile</span>
-        </div>
-      </section>
+<h1>Docker Sensore Dashboard</h1>
 
-      <section class="card">
-        <div class="label">Endpoint monitorati</div>
-        <div class="value">
-          <div><code>/api/last-reading</code></div>
-          <div><code>/api/history</code></div>
-        </div>
-      </section>
+<p class="lead">
+  Frontend separato con Nginx, API Flask e Redis in Docker Compose.
+</p>
+
+<div class="grid">
+
+  <section class="card">
+    <div class="label">Ultima lettura</div>
+
+    <div id="last-reading" class="value">
+      Caricamento...
     </div>
 
-    <section class="card" style="margin-top: 20px;">
-      <div class="label">Storico ultime letture</div>
-      <ul id="history-list" class="history-list">
-        <li>Caricamento...</li>
-      </ul>
-    </section>
-
-    <div class="footer">
-      Aggiornamento automatico ogni 3 secondi.
+    <div class="status">
+      <span id="status-dot" class="dot"></span>
+      <span id="status-text">Verifica API e Redis...</span>
     </div>
+  </section>
+
+  <section class="card">
+    <div class="label">Endpoint monitorati</div>
+
+    <div class="value">
+      <div><code>/api/health</code></div>
+      <div><code>/api/last-reading</code></div>
+      <div><code>/api/history?limit=20</code></div>
+    </div>
+  </section>
+
+  <section id="temperature-card" class="card">
+    <div class="label">Temperatura</div>
+
+    <div id="temperature-kpi" class="kpi">
+      -- °C
+    </div>
+
+    <div id="temperature-status" class="status">
+      In attesa dati
+    </div>
+  </section>
+
+  <section id="humidity-card" class="card">
+    <div class="label">Umidità</div>
+
+    <div id="humidity-kpi" class="kpi">
+      -- %
+    </div>
+
+    <div id="humidity-status" class="status">
+      In attesa dati
+    </div>
+  </section>
+
+</div>
+
+<section class="card" style="margin-top: 20px;">
+  <div class="label">Andamento temperatura e umidità</div>
+  <canvas id="sensorChart" height="120"></canvas>
+</section>
+
+<section class="card" style="margin-top: 20px;">
+  <div class="label">Storico ultime letture</div>
+
+  <ul id="history-list" class="history-list">
+    <li>Caricamento...</li>
+  </ul>
+</section>
+
+<div class="footer">
+  Aggiornamento automatico ogni 3 secondi.
+</div>
+```
+
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script>
+    const ctx = document
+      .getElementById('sensorChart')
+      .getContext('2d');
+
+    const sensorChart = new Chart(ctx, {
+      type: 'line',
+
+      data: {
+        labels: [],
+
+        datasets: [
+          {
+            label: 'Temperatura (°C)',
+            data: [],
+            borderColor: '#22c55e',
+            backgroundColor: 'rgba(34, 197, 94, 0.15)',
+            tension: 0.3,
+            fill: true
+          },
+
+          {
+            label: 'Umidità (%)',
+            data: [],
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56, 189, 248, 0.12)',
+            tension: 0.3,
+            fill: true
+          }
+        ]
+      },
+
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+
+        plugins: {
+          legend: {
+            labels: {
+              color: '#e5e7eb'
+            }
+          }
+        },
+
+        scales: {
+          x: {
+            ticks: {
+              color: '#94a3b8'
+            },
+
+            grid: {
+              color: 'rgba(148, 163, 184, 0.12)'
+            }
+          },
+
+          y: {
+            ticks: {
+              color: '#94a3b8'
+            },
+
+            grid: {
+              color: 'rgba(148, 163, 184, 0.12)'
+            }
+          }
+        }
+      }
+    });
+
+
     async function loadData() {
-      const lastReadingEl = document.getElementById('last-reading');
-      const historyListEl = document.getElementById('history-list');
-      const statusDot = document.getElementById('status-dot');
-      const statusText = document.getElementById('status-text');
+
+      const lastReadingEl =
+        document.getElementById('last-reading');
+
+      const historyListEl =
+        document.getElementById('history-list');
+
+      const statusDot =
+        document.getElementById('status-dot');
+
+      const statusText =
+        document.getElementById('status-text');
+
+      const temperatureCard =
+        document.getElementById('temperature-card');
+
+      const humidityCard =
+        document.getElementById('humidity-card');
+
+      const temperatureKpiEl =
+        document.getElementById('temperature-kpi');
+
+      const humidityKpiEl =
+        document.getElementById('humidity-kpi');
+
+      const temperatureStatusEl =
+        document.getElementById('temperature-status');
+
+      const humidityStatusEl =
+        document.getElementById('humidity-status');
+
 
       try {
-        const [lastRes, historyRes] = await Promise.all([
-          fetch('/api/last-reading'),
-          fetch('/api/history')
-        ]);
 
-        if (!lastRes.ok || !historyRes.ok) {
-          throw new Error('API non disponibile');
+        const [healthRes, lastRes, historyRes] =
+          await Promise.all([
+            fetch('/api/health'),
+            fetch('/api/last-reading'),
+            fetch('/api/history?limit=20')
+          ]);
+
+
+        const healthData =
+          await healthRes.json();
+
+        const lastData =
+          await lastRes.json();
+
+        const historyData =
+          await historyRes.json();
+
+        const readings =
+          historyData.storico_letture || [];
+
+
+        if (lastData && lastData.timestamp) {
+
+          const temperature =
+            Number(lastData.temperatura);
+
+          const humidity =
+            Number(lastData.umidita);
+
+
+          lastReadingEl.textContent =
+            `${lastData.timestamp} | Temp: ${temperature} °C | Umidità: ${humidity} %`;
+
+
+          temperatureKpiEl.textContent =
+            `${temperature} °C`;
+
+          humidityKpiEl.textContent =
+            `${humidity} %`;
+
+
+          temperatureKpiEl.classList.remove(
+            'kpi-ok',
+            'kpi-warn',
+            'kpi-alert'
+          );
+
+          humidityKpiEl.classList.remove(
+            'kpi-ok',
+            'kpi-warn',
+            'kpi-alert'
+          );
+
+          temperatureCard.classList.remove(
+            'warn',
+            'alert'
+          );
+
+          humidityCard.classList.remove(
+            'warn',
+            'alert'
+          );
+
+
+          if (temperature >= 30 || temperature <= 10) {
+
+            temperatureKpiEl.classList.add('kpi-alert');
+
+            temperatureStatusEl.textContent =
+              'Temperatura fuori range';
+
+            temperatureCard.classList.add('alert');
+
+          } else if (temperature >= 25 || temperature <= 15) {
+
+            temperatureKpiEl.classList.add('kpi-warn');
+
+            temperatureStatusEl.textContent =
+              'Temperatura da monitorare';
+
+            temperatureCard.classList.add('warn');
+
+          } else {
+
+            temperatureKpiEl.classList.add('kpi-ok');
+
+            temperatureStatusEl.textContent =
+              'Temperatura nella norma';
+
+          }
+
+
+          if (humidity >= 70 || humidity <= 30) {
+
+            humidityKpiEl.classList.add('kpi-alert');
+
+            humidityStatusEl.textContent =
+              'Umidità fuori range';
+
+            humidityCard.classList.add('alert');
+
+          } else if (humidity > 60 || humidity < 40) {
+
+            humidityKpiEl.classList.add('kpi-warn');
+
+            humidityStatusEl.textContent =
+              'Umidità da monitorare';
+
+            humidityCard.classList.add('warn');
+
+          } else {
+
+            humidityKpiEl.classList.add('kpi-ok');
+
+            humidityStatusEl.textContent =
+              'Umidità nella norma';
+
+          }
+
+        } else {
+
+          lastReadingEl.textContent =
+            'Nessun dato disponibile';
+
+          temperatureKpiEl.textContent =
+            '-- °C';
+
+          humidityKpiEl.textContent =
+            '-- %';
+
+          temperatureStatusEl.textContent =
+            'In attesa dati';
+
+          humidityStatusEl.textContent =
+            'In attesa dati';
+
         }
 
-        const lastData = await lastRes.json();
-        const historyData = await historyRes.json();
-
-        lastReadingEl.textContent = lastData.ultima_lettura || 'Nessun dato disponibile';
 
         historyListEl.innerHTML = '';
-        const readings = historyData.storico_letture || [];
+
 
         if (readings.length === 0) {
-          historyListEl.innerHTML = '<li>Nessuna lettura disponibile</li>';
+
+          historyListEl.innerHTML =
+            '<li>Nessuna lettura disponibile</li>';
+
         } else {
+
           readings.forEach(item => {
-            const li = document.createElement('li');
-            li.textContent = item;
+
+            const li =
+              document.createElement('li');
+
+            li.textContent =
+              `${item.timestamp} | Temp: ${item.temperatura} °C | Umidità: ${item.umidita} %`;
+
             historyListEl.appendChild(li);
+
           });
+
         }
 
-        statusDot.classList.remove('error');
-        statusText.textContent = 'API raggiungibile';
+
+        const labels =
+          readings.map(item => {
+
+            const timestamp =
+              item.timestamp || '';
+
+            return timestamp.includes('T')
+              ? timestamp.split('T')[1]
+              : timestamp;
+
+          });
+
+
+        const temperatureData =
+          readings.map(item =>
+            Number(item.temperatura)
+          );
+
+
+        const humidityData =
+          readings.map(item =>
+            Number(item.umidita)
+          );
+
+
+        sensorChart.data.labels =
+          labels;
+
+        sensorChart.data.datasets[0].data =
+          temperatureData;
+
+        sensorChart.data.datasets[1].data =
+          humidityData;
+
+        sensorChart.update();
+
+
+        if (
+          healthRes.ok &&
+          healthData.status === 'ok'
+        ) {
+
+          statusDot.classList.remove('error');
+
+          statusText.textContent =
+            'API e Redis operativi';
+
+        } else {
+
+          statusDot.classList.add('error');
+
+          statusText.textContent =
+            'Problema API o Redis';
+
+        }
+
+
       } catch (error) {
-        lastReadingEl.textContent = 'Errore nel recupero dati';
-        historyListEl.innerHTML = '<li>Impossibile caricare lo storico</li>';
+
+        lastReadingEl.textContent =
+          'Errore nel recupero dati';
+
+        historyListEl.innerHTML =
+          '<li>Impossibile caricare lo storico</li>';
+
         statusDot.classList.add('error');
-        statusText.textContent = 'API non raggiungibile';
+
+        statusText.textContent =
+          'Problema API o Redis';
+
       }
+
     }
 
+
     loadData();
+
     setInterval(loadData, 3000);
+
   </script>
+
 </body>
 </html>

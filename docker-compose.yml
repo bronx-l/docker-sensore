@@ -3,22 +3,41 @@ services:
     image: redis:7-alpine
     container_name: redis-sensore
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   api:
     build:
       context: ./api
     container_name: api-sensore
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    environment:
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
 
   sensore:
     build:
       context: ./sensor
     container_name: sensore-compose
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    environment:
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
+      SENSOR_INTERVAL: ${SENSOR_INTERVAL}
+      TEMPERATURE_MIN: ${TEMPERATURE_MIN}
+      TEMPERATURE_MAX: ${TEMPERATURE_MAX}
+      HUMIDITY_MIN: ${HUMIDITY_MIN}
+      HUMIDITY_MAX: ${HUMIDITY_MAX}
     volumes:
       - C:\log-sensore:/app/log
 
@@ -27,10 +46,8 @@ services:
       context: ./frontend
     container_name: frontend-sensore
     depends_on:
-      - api
+      api:
+        condition: service_started
     restart: unless-stopped
     ports:
       - "80:80"
-
-volumes:
-  redis_data:
