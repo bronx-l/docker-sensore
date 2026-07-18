@@ -17,7 +17,7 @@ while True:
     line = f"[{timestamp}] Temp: {temperatura} °C  Umidità: {umidita} %"
     print(line)
 
-    with open(LOG_FILE, "a") as f:
+    with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 
     r.set("ultima_lettura", line)

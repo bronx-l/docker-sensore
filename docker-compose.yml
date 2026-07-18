@@ -1,32 +1,36 @@
 services:
   redis:
-    image: redis
+    image: redis:7-alpine
     container_name: redis-sensore
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    restart: unless-stopped
-
-  sensore:
-    build: .
-    container_name: sensore-compose
-    depends_on:
-      - redis
-    volumes:
-      - C:\log-sensore:/app/log
     restart: unless-stopped
 
   api:
-    build: .
+    build:
+      context: ./api
     container_name: api-sensore
-    command: python api.py
     depends_on:
       - redis
-    ports:
-      - "8000:8000"
     restart: unless-stopped
+
+  sensore:
+    build:
+      context: ./sensor
+    container_name: sensore-compose
+    depends_on:
+      - redis
+    restart: unless-stopped
+    volumes:
+      - C:\log-sensore:/app/log
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: frontend-sensore
+    depends_on:
+      - api
+    restart: unless-stopped
+    ports:
+      - "80:80"
 
 volumes:
   redis_data:
